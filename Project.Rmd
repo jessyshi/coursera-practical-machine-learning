@@ -1,0 +1,153 @@
+---
+title: "Practical Machine Learning - Coursera"
+author: "Jessy"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+
+This is the project report for Coursera's Practical Machine Learning module offered by John Hopkins.
+In this project, data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants is used to build a model to predict the manner in which the participants did the exercise.
+
+
+We train 3 models using random forest, decision trees, and generalized boosting machine. The three models would be compared by their accuracy and out of sample error, and one model is selected. This is done by performing cross validation to the dataset with training to validation set ratio of 75:25. The selected model would then be used to predict 20 test cases.
+
+
+```{r load packages, include=FALSE}
+library(ggplot2)
+library(lattice)
+library(caret)
+library(corrplot)
+library(forecast)
+```
+
+# Data Cleaning and Preparation
+
+The raw data comes from the URLs below, read into R to separate sets, training and testing.
+```{r}
+testURL<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainURL<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+
+testing<-read.csv(testURL)
+training<-read.csv(trainURL)
+```
+
+After the data is read into R, we proceed to select the variables that we would use to build the model.
+
+First, we remove the first 7 columns that contain identification-only variables as these would not help in the prediction.
+```{r}
+training<-training[,-(1:7)]
+testing<-testing[,-(1:7)]
+```
+
+Next, we identify and remove variables that have very little change to variance.
+```{r}
+nzv<-nearZeroVar(training)
+training<-training[,-nzv]
+testing<-testing[,-nzv]
+```
+
+Lastly, we remove variables that consist mostly NA values (here the cutoff used is 90%).
+```{r}
+na<-(colMeans(is.na(training))<0.9)
+training<-training[,na]
+testing<-testing[,na]
+```
+
+We are left with 52 predictor variables these would be used for the prediction model.
+```{r}
+dim(training)
+```
+
+## Correlation Analysis between Variables
+
+We calculate and plot the correlation of the covariates (excluding the classe variable)
+```{r}
+corr <- cor(training[, -length(names(training))])
+corrplot(corr, method="color")
+```
+
+The variables that are highly correlated with each other is represented with deeper color. 
+Since the correlation between variables are not very high, we could use these variables to build the prediction model.
+
+
+Now that the variables are selected, we would split the data to training and validation set (ratio used is 75/25).
+
+```{r}
+set.seed(123)
+inTrain = createDataPartition(training$classe, p = 3/4)[[1]]
+
+training$classe<-factor(training$classe)
+trainset<-training[inTrain,]
+validationset<-training[-inTrain,]
+```
+
+
+# Model Building
+
+We would be trying to fit the 3 models and compare which model is the most suitable.
+
+## 1. Random Forest
+```{r}
+set.seed(123)
+fitControl <- trainControl(method = "cv",number = 5, verboseIter = FALSE)
+rfFit<-train(classe~.,data=trainset,method="rf", trcontrol=fitControl)
+
+rfpred<-predict(rfFit,validationset[,1:52])
+rfcm<-confusionMatrix(rfpred,validationset$classe)
+rfacc<-rfcm[3]$overall[1]
+```
+
+
+## 2. Decision Trees
+
+```{r}
+set.seed(123)
+dtFit<-train(classe~.,data=trainset,method="rpart")
+
+dtpred<-predict(dtFit,validationset[,1:52])
+dtcm<-confusionMatrix(dtpred,validationset$classe)
+dtacc<-dtcm[3]$overall[1]
+```
+
+
+## 3. Generalized Boosting Machine
+
+```{r, message=FALSE, results='hide', warning=FALSE}
+set.seed(123)
+gbmFit<-train(classe~.,data=trainset,method="gbm")
+
+gbmpred<-predict(gbmFit,validationset[,1:52])
+gbmcm<-confusionMatrix(gbmpred,validationset$classe)
+gbmacc<-gbmcm[3]$overall[1]
+
+```
+
+
+
+# Model Selection
+
+```{r echo=FALSE}
+model<-c("Random Forest","Decision Tree", "Gradient Boosting Machine")
+acc<-c(rfacc,dtacc,gbmacc)
+oos<-c(1-rfacc,1-dtacc,1-gbmacc)
+acctable<-rbind(acc,oos)
+colnames(acctable)<-model
+rownames(acctable)<-c("Accuracy","Out of Sample Error")
+print(acctable)
+
+
+```
+
+The selected model is the Random Forest model, with 0.994902120717781 accuracy and 0.00509787928 out of sample error. 
+
+# Prediction on Test set
+
+The selected model is used to predict the 20 test cases.
+```{r}
+predict(rfFit,testing[,1:52])
+```
